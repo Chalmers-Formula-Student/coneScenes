@@ -1,0 +1,17 @@
+{
+    "name": "coneScenes Lidar Dataset",
+    "version": "0.1",
+    "last_updated": "2023-11-19 17:26:45",
+    "data": [
+        {
+            "name": "CFS_vargarda8",
+            "team": "Chalmers Formula Student",
+            "description": "Vargarda track number 8",
+            "lidar": "Ouster OS1-64 bh",
+            "lidar_location": "nose",
+            "submission_date": "2023-11-19 17:26:45",
+            "file_path": "vargarda8_23_07_27.zip",
+            "checksum": "be5fff0a49bfe6c9de3d75ecad236c5c"
+        }
+    ]
+}
