@@ -18,9 +18,11 @@ from rosidl_runtime_py.utilities import get_message
 import rosbag2_py
 import sensor_msgs_py.point_cloud2 as pc2
 from tf_transformations import euler_from_quaternion
+import tf2_ros
+# from tf2_sensor_msgs import do_transform_cloud
 
 SLAM_MAP_TOPIC = "/graphslam/cones/global_viz"
-POSE_TOPIC = "/graphslam/pose"
+# POSE_TOPIC = "/graphslam/pose"
 LAP_COUNT_TOPIC = "/graphslam/lap_count"
 CAR_STATE_TOPIC = "/ekf/car_state"
 POINTCLOUD_TOPIC = "/ouster/points"
@@ -28,19 +30,18 @@ POINTCLOUD_TOPIC = "/ouster/points"
 class DatasetGenerator:
     def __init__(self,
                  selected_file: str,
-                 lidar_rotation: float = 1.5707,
                  label_every: int = 10,
-                 pc_in_global_frame: bool = False,
                  ego_motion_compensate: bool = False
                  ):
         self.selected_file: str = selected_file
-        self.lidar_rotation: float = lidar_rotation
         self.label_every: int = label_every
-        self.pc_in_global_frame: bool = pc_in_global_frame
         self.ego_motion_compensate: bool = ego_motion_compensate
 
     def _compensate_point_cloud(self, point_cloud: np.ndarray, vx: float, vy: float, yaw_rate: float) -> np.ndarray:
         """Perform ego-motion compensation on the point cloud."""
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
         lidarFrequency = 20  # Hz
         nPositions = 100  # Number of positions to compute over
         timeStep = 1.0 / (lidarFrequency * nPositions)  # The time step between positions
@@ -160,6 +161,18 @@ class DatasetGenerator:
             topic, data, timestamp = reader.read_next()
 
             # Extract Speed
+            
+            # TF2 messages
+            if topic == "/tf":
+                msg_type = get_message(typename(topic))
+                msg = deserialize_message(data, msg_type)
+                for transform in msg.transforms:
+                    self.tf_buffer.set_transform(transform, "default_authority")
+            if topic == "/tf_static":
+                msg_type = get_message(typename(topic))
+                msg = deserialize_message(data, msg_type)
+                for transform in msg.transforms:
+                    self.tf_buffer.set_transform(transform, "default_authority")
             if topic == CAR_STATE_TOPIC:
                 msg_type = get_message(typename(topic))
                 msg = deserialize_message(data, msg_type)
@@ -183,29 +196,27 @@ class DatasetGenerator:
 
             # Extract Point Cloud
             if topic == POINTCLOUD_TOPIC:
-                if pose is None:
-                    continue
-
                 msg_type = get_message(typename(topic))
                 msg = deserialize_message(data, msg_type)
 
                 if self.ego_motion_compensate:
-                    pc_data = pc2.read_points(msg, field_names=("x", "y", "z", "intensity", "t"), skip_nans=True)
+                    pc_data = pc2.read_points(msgTf, field_names=("x", "y", "z", "intensity", "t"), skip_nans=True)
+                try:
+                    # transform = self.tf_buffer.lookup_transform(LOCAL_FRAME, msg.header.frame_id, msg.header.stamp)
+                    # msgTf = do_transform_cloud(msg, transform)
+                    msgTf = self.tf_buffer.transform(msg, LOCAL_FRAME)
+                except tf2_ros.TransformException as ex:
+                    print("Got an exception while looking up transform: " + str(ex))
+                    continue
+
+
+
                     pc_array = np.array([list(p) for p in pc_data[['x', 'y', 'z', 'intensity', 't']]], dtype=np.float32).reshape(-1, 5)
                 else:
-                    pc_data = pc2.read_points(msg, field_names=("x", "y", "z", "intensity"), skip_nans=True)
+                    pc_data = pc2.read_points(msgTf, field_names=("x", "y", "z", "intensity"), skip_nans=True)
                     pc_array = np.array([list(p) for p in pc_data[['x', 'y', 'z', 'intensity']]], dtype=np.float32).reshape(-1, 4)
 
-                for i in range(pc_array.shape[0]):
-                    x = pc_array[i, 0] * math.cos(self.lidar_rotation) - pc_array[i, 1] * math.sin(self.lidar_rotation) + 1.0
-                    pc_array[i, 1] = pc_array[i, 0] * math.sin(self.lidar_rotation) + pc_array[i, 1] * math.cos(self.lidar_rotation)
-                    pc_array[i, 0] = x
-                    pc_array[i, 2] = pc_array[i, 2] + 0.45
                 pc_array = pc_array.astype(np.float32)
-
-                # Transform pointcloud from global to local frame
-                if self.pc_in_global_frame:
-                    pc_array = self._get_local_pcl(pc_array, pose)
 
                 # Point-wise ego motion compensation (x, y and yaw rate)
                 if self.ego_motion_compensate:
@@ -337,17 +348,13 @@ class DatasetGenerator:
 
 class MapEditor:
     def __init__(self,
-                 lidar_rotation: float = 1.5707,
                  label_every: int = 10,
-                 pc_in_global_frame: bool = False,
                  ego_motion_compensate: bool = False
                  ):
         self.cones: List[Tuple[float, float]] = []
         self.selected_cones: Set[Tuple[float, float]] = set()
         self.selected_file: str = ""
-        self.lidar_rotation: float = lidar_rotation
         self.label_every: int = label_every
-        self.pc_in_global_frame: bool = pc_in_global_frame
         self.ego_motion_compensate: bool = ego_motion_compensate
 
         self.root = tk.Tk()
@@ -510,9 +517,7 @@ class MapEditor:
             messagebox.showinfo("Info", "Select cones to remove.")
 
     def gen_data(self):
-        datasetGenerator = DatasetGenerator(self.selected_file, self.lidar_rotation,
-                                            self.label_every, self.pc_in_global_frame, 
-                                            self.ego_motion_compensate)
+        datasetGenerator = DatasetGenerator(self.selected_file, self.label_every, self.ego_motion_compensate)
         datasetGenerator.gen_data(self.cones)
 
     def run(self):
@@ -521,9 +526,7 @@ class MapEditor:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Map editor")
-    parser.add_argument("--lidar-rotation", type=float, default=-1.5707, help="Lidar rotation")
     parser.add_argument("--label-every", type=int, default=10, help="Label every nth point cloud")
-    parser.add_argument("--pc-in-global-frame", action="store_true", help="Indicates that the pointcloud is in global frame. This will transform it to local frame.")
     parser.add_argument("--ego-motion-compensate", action="store_true", help="Ego-motion compensate the point cloud")
 
     return parser.parse_args()
@@ -532,7 +535,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    editor = MapEditor(args.lidar_rotation, args.label_every, args.pc_in_global_frame, args.ego_motion_compensate)
+    editor = MapEditor(args.label_every, args.ego_motion_compensate)
     editor.run()
 
 if __name__ == "__main__":
