@@ -22,7 +22,7 @@ import tf2_ros
 # from tf2_sensor_msgs import do_transform_cloud
 
 SLAM_MAP_TOPIC = "/graphslam/cones/global_viz"
-# POSE_TOPIC = "/graphslam/pose"
+POSE_TOPIC = "/graphslam/pose"
 LAP_COUNT_TOPIC = "/graphslam/lap_count"
 CAR_STATE_TOPIC = "/ekf/car_state"
 POINTCLOUD_TOPIC = "/ouster/points"
@@ -39,10 +39,9 @@ class DatasetGenerator:
 
     def _compensate_point_cloud(self, point_cloud: np.ndarray, vx: float, vy: float, yaw_rate: float) -> np.ndarray:
         """Perform ego-motion compensation on the point cloud."""
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
-
         lidarFrequency = 20  # Hz
+        self.tf_buffer = tf2_ros.Buffer()
+
         nPositions = 100  # Number of positions to compute over
         timeStep = 1.0 / (lidarFrequency * nPositions)  # The time step between positions
         timeScaling = nPositions / 100.0 * lidarFrequency / 10.0  # How to scale the point time to get the correct position
@@ -83,58 +82,102 @@ class DatasetGenerator:
 
         return pcl_cloud_transformed
 
-    def _get_local_pcl(self, 
-                       pcl: np.ndarray,
-                       pose: Any
-                       ) -> np.ndarray:
+    def _get_local_cones(self, cones, transform,  pc_array: np.ndarray) -> Tuple[List[Tuple[float, float]], float]:
         # Extract pose components
-        x, y = pose.position.x, pose.position.y
+        x, y = transform.translation.x, transform.translation.y
 
         orientation_list = [
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w,
-        ]
-        (roll, pitch, yaw) = euler_from_quaternion(orientation_list)
-
-        # Tranform pointcloud from global to local frame
-        if self.pc_in_global_frame:
-            for i in range(pcl.shape[0]):
-                x_pc = pcl[i, 0]
-                pcl[i, 0] = (x_pc - x) * math.cos(yaw) + (pcl[i, 1] - y) * math.sin(yaw)
-                pcl[i, 1] = -(x_pc - x) * math.sin(yaw) + (pcl[i, 1] - y) * math.cos(yaw)
-
-        return pcl
-
-    def _get_local_cones(self, cones, pose,  pc_array: np.ndarray) -> Tuple[List[Tuple[float, float]], float]:
-        # Extract pose components
-        x, y = pose.position.x, pose.position.y
-
-        orientation_list = [
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w,
+            transform.rotation.x,
+            transform.rotation.y,
+            transform.rotation.z,
+            transform.rotation.w,
         ]
         (roll, pitch, yaw) = euler_from_quaternion(orientation_list)
 
         local_cones = []
         for cone in cones:
-            # Extract global coordinates
-            global_x, global_y = cone
+            local_cones.append([cone[0], cone[1], 0])
+        
+        np_cones = np.array(local_cones)
 
-            # Transform the point to the local frame
-            x_rel = (global_x - x) * math.cos(yaw) + (global_y - y) * math.sin(yaw)
-            y_rel = -(global_x - x) * math.sin(yaw) + (global_y - y) * math.cos(yaw)
+        # Tranform pointcloud from global to local frame
+        np_cones = self._transform_array(np_cones, transform)
 
-            local_cones.append((x_rel, y_rel))
+        local_cones = []
+        for i in range(np_cones.shape[0]):
+            local_cones.append([np_cones[i, 0], np_cones[i, 1]])
 
         return local_cones, yaw
 
     def _read_data(self,
                    global_cones: List[Tuple[float, float]]
                    ) -> Generator[Tuple[np.ndarray, List[Tuple[float, float]], Dict[str, Any]], None, None]:
+    def _get_mat_from_quat(self, quaternion: np.ndarray) -> np.ndarray:
+        """
+        note:: This was copied from https://github.com/ros2/geometry2/blob/iron/tf2_sensor_msgs/tf2_sensor_msgs/tf2_sensor_msgs.py
+               since it is not available for ROS2 versions < Iron
+
+        Convert a quaternion to a rotation matrix.
+
+        This method is currently needed because transforms3d is not released as a `.dep` and
+        would require user interaction to set up.
+
+        For reference see: https://github.com/matthew-brett/transforms3d/blob/
+        f185e866ecccb66c545559bc9f2e19cb5025e0ab/transforms3d/quaternions.py#L101
+
+        :param quaternion: A numpy array containing the w, x, y, and z components of the quaternion
+        :returns: An array containing an X, Y, and Z translation component
+        """
+        Nq = np.sum(np.square(quaternion))
+        if Nq < np.finfo(np.float64).eps:
+            return np.eye(3)
+
+        XYZ = quaternion[1:] * 2.0 / Nq
+        wXYZ = XYZ * quaternion[0]
+        xXYZ = XYZ * quaternion[1]
+        yYZ = XYZ[1:] * quaternion[2]
+        zZ = XYZ[2] * quaternion[3]
+
+        return np.array(
+            [[1.0-(yYZ[0]+zZ), xXYZ[1]-wXYZ[2], xXYZ[2]+wXYZ[1]],
+            [xXYZ[1]+wXYZ[2], 1.0-(xXYZ[0]+zZ), yYZ[1]-wXYZ[0]],
+            [xXYZ[2]-wXYZ[1], yYZ[1]+wXYZ[0], 1.0-(xXYZ[0]+yYZ[0])]])
+
+    def _transform_array(self,
+            point_cloud: np.ndarray,
+            transform) -> np.ndarray:
+        """
+        note:: This was copied from https://github.com/ros2/geometry2/blob/iron/tf2_sensor_msgs/tf2_sensor_msgs/tf2_sensor_msgs.py
+               since it is not available for ROS2 versions < Iron
+
+        Transform a bulk of points from an numpy array using a provided `Transform`.
+
+        :param point_cloud: nx3 Array of points where n is the number of points
+        :param transform: TF2 transform used for the transformation
+        :returns: Array with the same shape as the input array, but with the transformation applied
+        """
+        # Build affine transformation
+        transform_translation = np.array([
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z
+        ])
+        transform_rotation_matrix = self._get_mat_from_quat(
+            np.array([
+                transform.rotation.w,
+                transform.rotation.x,
+                transform.rotation.y,
+                transform.rotation.z
+            ]))
+
+        # "Batched" matmul meaning a matmul for each point
+        # First we offset all points by the translation part
+        # followed by a rotation using the rotation matrix
+        return np.einsum(
+            'ij, pj -> pi',
+            transform_rotation_matrix,
+            point_cloud) + transform_translation
+
         reader = rosbag2_py.SequentialReader()
         reader.open(
             rosbag2_py.StorageOptions(uri=self.selected_file, storage_id="mcap"),
@@ -161,6 +204,7 @@ class DatasetGenerator:
             topic, data, timestamp = reader.read_next()
 
             # Extract Speed
+            if topic == CAR_STATE_TOPIC:
             
             # TF2 messages
             if topic == "/tf":
@@ -172,8 +216,7 @@ class DatasetGenerator:
                 msg_type = get_message(typename(topic))
                 msg = deserialize_message(data, msg_type)
                 for transform in msg.transforms:
-                    self.tf_buffer.set_transform(transform, "default_authority")
-            if topic == CAR_STATE_TOPIC:
+                    self.tf_buffer.set_transform_static(transform, "default_authority")
                 msg_type = get_message(typename(topic))
                 msg = deserialize_message(data, msg_type)
                 vx = msg.linear_velocity.x
@@ -186,55 +229,58 @@ class DatasetGenerator:
                 msg = deserialize_message(data, msg_type)
                 lap = msg.data
 
-            # Extract Pose
-            if topic == POSE_TOPIC:
-                msg_type = get_message(typename(topic))
-                pose = deserialize_message(data, msg_type)
-
             if lap < 1: # Skip the first lap
                 continue
 
             # Extract Point Cloud
             if topic == POINTCLOUD_TOPIC:
+                
                 msg_type = get_message(typename(topic))
                 msg = deserialize_message(data, msg_type)
 
                 if self.ego_motion_compensate:
-                    pc_data = pc2.read_points(msgTf, field_names=("x", "y", "z", "intensity", "t"), skip_nans=True)
+                    pc_data = pc2.read_points(msg, field_names=("x", "y", "z", "intensity", "t"), skip_nans=True)
+                    pc_array = np.array([list(p) for p in pc_data[['x', 'y', 'z', 'intensity', 't']]], dtype=np.float32).reshape(-1, 5)
                 try:
-                    # transform = self.tf_buffer.lookup_transform(LOCAL_FRAME, msg.header.frame_id, msg.header.stamp)
+                    transform = self.tf_buffer.lookup_transform(LOCAL_FRAME, msg.header.frame_id, msg.header.stamp)
                     # msgTf = do_transform_cloud(msg, transform)
-                    msgTf = self.tf_buffer.transform(msg, LOCAL_FRAME)
+                    # msgTf = self.tf_buffer.transform(msg, LOCAL_FRAME)
                 except tf2_ros.TransformException as ex:
                     print("Got an exception while looking up transform: " + str(ex))
                     continue
 
 
-
-                    pc_array = np.array([list(p) for p in pc_data[['x', 'y', 'z', 'intensity', 't']]], dtype=np.float32).reshape(-1, 5)
                 else:
-                    pc_data = pc2.read_points(msgTf, field_names=("x", "y", "z", "intensity"), skip_nans=True)
+                    pc_data = pc2.read_points(msg, field_names=("x", "y", "z", "intensity"), skip_nans=True)
                     pc_array = np.array([list(p) for p in pc_data[['x', 'y', 'z', 'intensity']]], dtype=np.float32).reshape(-1, 4)
 
                 pc_array = pc_array.astype(np.float32)
+
+                msgTf = self._transform_array(pc_array[:, :3], transform.transform)
+                pc_array[:, :3] = msgTf
 
                 # Point-wise ego motion compensation (x, y and yaw rate)
                 if self.ego_motion_compensate:
                     pc_array = self._compensate_point_cloud(pc_array, vx, vy, yawrate)
                 pc_array = pc_array[:, :4]
 
-                cones, yaw = self._get_local_cones(global_cones, pose, pc_array)
+                try:
+                    transform = self.tf_buffer.lookup_transform(LOCAL_FRAME, CONE_FRAME, msg.header.stamp)
+                except tf2_ros.TransformException as ex:
+                    print("Got an exception while looking up transform: " + str(ex))
+                    continue
+
+                cones, yaw = self._get_local_cones(global_cones, transform.transform, pc_array)
                 odom = {
                     "timestamp": msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9,
-                    "x": pose.position.x,
-                    "y": pose.position.y,
-                    "z": pose.position.z,
+                    "x": transform.transform.translation.x,
+                    "y": transform.transform.translation.y,
+                    "z": transform.transform.translation.z,
                     "yaw": yaw,
                     "vx": vx,
                     "vy": vy,
                     "yawrate": yawrate,
                 }
-                pose = None
 
                 yield pc_array, cones, odom
 
@@ -259,7 +305,7 @@ class DatasetGenerator:
         data_info = {
             "info": {
                 "tool": "generateDataset.py",
-                "version": "0.1",
+                "version": "0.2",
                 "description": "Generated from MCAP file",
                 "generated_on": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "last_updated": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
