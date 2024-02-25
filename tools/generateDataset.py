@@ -23,7 +23,10 @@ from tf_transformations import euler_from_quaternion
 SLAM_MAP_TOPIC = "/graphslam/cones/global_viz"
 LAP_COUNT_TOPIC = "/graphslam/lap_count"
 CAR_STATE_TOPIC = "/ekf/car_state"
-POINTCLOUD_TOPIC = "/ouster/points"
+POINTCLOUD_TOPIC = "/limovelo/full_pcl"
+
+LOCAL_FRAME = "car" # Commonly name base_link
+CONE_FRAME = "map"
 
 class DatasetGenerator:
     def __init__(self,
@@ -35,11 +38,11 @@ class DatasetGenerator:
         self.label_every: int = label_every
         self.ego_motion_compensate: bool = ego_motion_compensate
 
+        self.tf_buffer = tf2_ros.Buffer()
+
     def _compensate_point_cloud(self, point_cloud: np.ndarray, vx: float, vy: float, yaw_rate: float) -> np.ndarray:
         """Perform ego-motion compensation on the point cloud."""
         lidarFrequency = 20  # Hz
-        self.tf_buffer = tf2_ros.Buffer()
-
         nPositions = 100  # Number of positions to compute over
         timeStep = 1.0 / (lidarFrequency * nPositions)  # The time step between positions
         timeScaling = nPositions / 100.0 * lidarFrequency / 10.0  # How to scale the point time to get the correct position
@@ -107,9 +110,6 @@ class DatasetGenerator:
 
         return local_cones, yaw
 
-    def _read_data(self,
-                   global_cones: List[Tuple[float, float]]
-                   ) -> Generator[Tuple[np.ndarray, List[Tuple[float, float]], Dict[str, Any]], None, None]:
     def _get_mat_from_quat(self, quaternion: np.ndarray) -> np.ndarray:
         """
         note:: This was copied from https://github.com/ros2/geometry2/blob/iron/tf2_sensor_msgs/tf2_sensor_msgs/tf2_sensor_msgs.py
@@ -176,6 +176,9 @@ class DatasetGenerator:
             transform_rotation_matrix,
             point_cloud) + transform_translation
 
+    def _read_data(self,
+                   global_cones: List[Tuple[float, float]]
+                   ) -> Generator[Tuple[np.ndarray, List[Tuple[float, float]], Dict[str, Any]], None, None]:
         reader = rosbag2_py.SequentialReader()
         reader.open(
             rosbag2_py.StorageOptions(uri=self.selected_file, storage_id="mcap"),
@@ -199,9 +202,6 @@ class DatasetGenerator:
         yawrate = 0.0
         while reader.has_next():
             topic, data, timestamp = reader.read_next()
-
-            # Extract Speed
-            if topic == CAR_STATE_TOPIC:
             
             # TF2 messages
             if topic == "/tf":
@@ -214,6 +214,9 @@ class DatasetGenerator:
                 msg = deserialize_message(data, msg_type)
                 for transform in msg.transforms:
                     self.tf_buffer.set_transform_static(transform, "default_authority")
+
+            # Extract Speed
+            if topic == CAR_STATE_TOPIC:
                 msg_type = get_message(typename(topic))
                 msg = deserialize_message(data, msg_type)
                 vx = msg.linear_velocity.x
@@ -235,9 +238,6 @@ class DatasetGenerator:
                 msg_type = get_message(typename(topic))
                 msg = deserialize_message(data, msg_type)
 
-                if self.ego_motion_compensate:
-                    pc_data = pc2.read_points(msg, field_names=("x", "y", "z", "intensity", "t"), skip_nans=True)
-                    pc_array = np.array([list(p) for p in pc_data[['x', 'y', 'z', 'intensity', 't']]], dtype=np.float32).reshape(-1, 5)
                 try:
                     transform = self.tf_buffer.lookup_transform(LOCAL_FRAME, msg.header.frame_id, msg.header.stamp)
                     # msgTf = do_transform_cloud(msg, transform)
@@ -247,6 +247,9 @@ class DatasetGenerator:
                     continue
 
 
+                if self.ego_motion_compensate:
+                    pc_data = pc2.read_points(msg, field_names=("x", "y", "z", "intensity", "t"), skip_nans=True)
+                    pc_array = np.array([list(p) for p in pc_data[['x', 'y', 'z', 'intensity', 't']]], dtype=np.float32).reshape(-1, 5)
                 else:
                     pc_data = pc2.read_points(msg, field_names=("x", "y", "z", "intensity"), skip_nans=True)
                     pc_array = np.array([list(p) for p in pc_data[['x', 'y', 'z', 'intensity']]], dtype=np.float32).reshape(-1, 4)
