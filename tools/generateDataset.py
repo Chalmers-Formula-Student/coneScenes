@@ -13,16 +13,14 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from typing import List, Set, Tuple, Optional, Dict, Any, Generator
 
-from rclpy.serialization import deserialize_message
-from rosidl_runtime_py.utilities import get_message
+import tf2_ros
 import rosbag2_py
 import sensor_msgs_py.point_cloud2 as pc2
+from rclpy.serialization import deserialize_message
+from rosidl_runtime_py.utilities import get_message
 from tf_transformations import euler_from_quaternion
-import tf2_ros
-# from tf2_sensor_msgs import do_transform_cloud
 
 SLAM_MAP_TOPIC = "/graphslam/cones/global_viz"
-POSE_TOPIC = "/graphslam/pose"
 LAP_COUNT_TOPIC = "/graphslam/lap_count"
 CAR_STATE_TOPIC = "/ekf/car_state"
 POINTCLOUD_TOPIC = "/ouster/points"
@@ -196,7 +194,6 @@ class DatasetGenerator:
 
         print("Reading bag...")
         lap = 0
-        pose = None
         vx = 0.0
         vy = 0.0
         yawrate = 0.0
