@@ -1,5 +1,4 @@
 import os
-import math
 import json
 import hashlib
 import argparse
@@ -25,10 +24,17 @@ LAP_COUNT_TOPIC = "/graphslam/lap_count"
 CAR_STATE_TOPIC = "/ekf/car_state"
 POINTCLOUD_TOPIC = "/limovelo/full_pcl"
 
-LOCAL_FRAME = "car" # Commonly name base_link
-CONE_FRAME = "map"
+LOCAL_FRAME = "car" # Commonly named base_link
+CONE_FRAME = "map" # This is the frame name used for the cones topic
 
-class DatasetGenerator:
+# Enum for cone color
+UNKOWN_C = 0
+YELLOR_C = 1
+BLUE_C = 2
+BIG_C = 3
+ORANGE_C = 4
+
+class SceneGenerator:
     def __init__(self,
                  selected_file: str,
                  label_every: int = 10,
@@ -83,21 +89,21 @@ class DatasetGenerator:
 
         return pcl_cloud_transformed
 
-    def _get_local_cones(self, cones, transform,  pc_array: np.ndarray) -> Tuple[List[Tuple[float, float]], float]:
+    def _get_local_cones(self, cones: List[Tuple[float, float, int]], transform,  pc_array: np.ndarray) -> Tuple[List[Tuple[float, float, int]], float]:
         # Extract pose components
-        x, y = transform.translation.x, transform.translation.y
-
         orientation_list = [
             transform.rotation.x,
             transform.rotation.y,
             transform.rotation.z,
             transform.rotation.w,
         ]
-        (roll, pitch, yaw) = euler_from_quaternion(orientation_list)
+        (_, _, yaw) = euler_from_quaternion(orientation_list)
 
         local_cones = []
+        colors = []
         for cone in cones:
             local_cones.append([cone[0], cone[1], 0])
+            colors.append(cone[2])
         
         np_cones = np.array(local_cones)
 
@@ -106,7 +112,7 @@ class DatasetGenerator:
 
         local_cones = []
         for i in range(np_cones.shape[0]):
-            local_cones.append([np_cones[i, 0], np_cones[i, 1]])
+            local_cones.append([np_cones[i, 0], np_cones[i, 1], colors[i]])
 
         return local_cones, yaw
 
@@ -177,8 +183,8 @@ class DatasetGenerator:
             point_cloud) + transform_translation
 
     def _read_data(self,
-                   global_cones: List[Tuple[float, float]]
-                   ) -> Generator[Tuple[np.ndarray, List[Tuple[float, float]], Dict[str, Any]], None, None]:
+                   global_cones: List[Tuple[float, float, int]]
+                   ) -> Generator[Tuple[np.ndarray, List[Tuple[float, float, int]], Dict[str, Any]], None, None]:
         reader = rosbag2_py.SequentialReader()
         reader.open(
             rosbag2_py.StorageOptions(uri=self.selected_file, storage_id="mcap"),
@@ -287,7 +293,7 @@ class DatasetGenerator:
         del reader
 
 
-    def gen_data(self, global_cones: List[Tuple[float, float]]):
+    def gen_data(self, global_cones: List[Tuple[float, float, int]]):
         if not global_cones:
             messagebox.showinfo("Info", "No points to save.")
             return
@@ -304,7 +310,7 @@ class DatasetGenerator:
 
         data_info = {
             "info": {
-                "tool": "generateDataset.py",
+                "tool": "generate_scene.py",
                 "version": "0.2",
                 "description": "Generated from MCAP file",
                 "generated_on": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -332,13 +338,25 @@ class DatasetGenerator:
 
                 # Get the cones in the local frame
                 if not cones:
-                    x_values, y_values = [], []
+                    x_values, y_values, colors = [], [], []
                 else:
-                    x_values, y_values = zip(*cones)
+                    x_values, y_values, colors = zip(*cones)
                 # Save to file
                 with open(f"{folder_path}/labels/{filenum:07d}.txt", "w") as f:
-                    for x, y in zip(x_values, y_values):
-                        f.write(f"{x} {y} 0.0 0.23 0.23 0.33 0.0 Cone\n")
+                    for x, y, c in zip(x_values, y_values, colors):
+                        if c == YELLOR_C:
+                            cone_type = 'Cone_Yellow'
+                        elif c == BLUE_C:
+                            cone_type = 'Cone_Blue'
+                        elif c == BIG_C:
+                            cone_type = 'Cone_Big'
+                        elif c == ORANGE_C:
+                            cone_type = 'Cone_Orange'
+                        else:
+                            # panic and return
+                            messagebox.showinfo("Error", "Unknown cone color in map")
+                            return
+                        f.write(f"{x} {y} 0.0 0.23 0.23 0.33 0.0 {cone_type}\n")
 
                 # Compute checksums
                 with open(f"{folder_path}/points/{filenum:07d}.bin", "rb") as f:
@@ -397,8 +415,8 @@ class MapEditor:
                  label_every: int = 10,
                  ego_motion_compensate: bool = False
                  ):
-        self.cones: List[Tuple[float, float]] = []
-        self.selected_cones: Set[Tuple[float, float]] = set()
+        self.cones: List[Tuple[float, float, int]] = []
+        self.selected_cones: Set[Tuple[float, float, int]] = set()
         self.selected_file: str = ""
         self.label_every: int = label_every
         self.ego_motion_compensate: bool = ego_motion_compensate
@@ -429,9 +447,30 @@ class MapEditor:
         remove_button = tk.Button(self.root, text="Remove Selected cones", command=self.remove_selected_cones)
         save_button = tk.Button(self.root, text="Export Dataset", command=self.gen_data)
 
+        # create buttons for setting colors
+        yellow_btn = tk.Button(self.root, text="Set Yellow", command=lambda: self.set_color(YELLOR_C))
+        blue_btn = tk.Button(self.root, text="Set Blue", command=lambda: self.set_color(BLUE_C))
+        big_btn = tk.Button(self.root, text="Set Big", command=lambda: self.set_color(BIG_C))
+        orange_btn = tk.Button(self.root, text="Set Orange", command=lambda: self.set_color(ORANGE_C))
+
         # plot_button.pack(side="left", padx=10)
         remove_button.pack(side="left", padx=10)
         save_button.pack(side="left", padx=10)
+        yellow_btn.pack(side="left", padx=10)
+        blue_btn.pack(side="left", padx=10)
+        big_btn.pack(side="left", padx=10)
+        orange_btn.pack(side="left", padx=10)
+
+    def set_color(self, color: int):
+        if not self.selected_cones:
+            messagebox.showinfo("Info", "Select cones to set color.")
+            return
+
+        for cone in self.selected_cones:
+            self.cones.remove(cone)
+            self.cones.append((cone[0], cone[1], color))
+        self.selected_cones = set()
+        self.plot_cones()
 
     def open_file(self):
         file_path = filedialog.askopenfilename(filetypes=[("MCAP bags", "*.mcap")])
@@ -447,7 +486,7 @@ class MapEditor:
         # Extract cones from the map
         self.cones = []
         for marker in msg.markers:
-            self.cones.append((marker.pose.position.x, marker.pose.position.y))
+            self.cones.append((marker.pose.position.x, marker.pose.position.y, UNKOWN_C))
 
         self.plot_cones()
 
@@ -508,10 +547,22 @@ class MapEditor:
         self.ax.clear()
 
         # Get the cones to plot
-        x_values, y_values = zip(*self.cones)
+        x_values, y_values, _ = zip(*self.cones)
 
         # Plot the cones
-        self.ax.scatter(x_values, y_values)
+        colors = []
+        for cone in self.cones:
+            if cone[2] == YELLOR_C:
+                colors.append("yellow")
+            elif cone[2] == BLUE_C:
+                colors.append("blue")
+            elif cone[2] == BIG_C:
+                colors.append("black")
+            elif cone[2] == ORANGE_C:
+                colors.append("orange")
+            else:
+                colors.append("purple")
+        self.ax.scatter(x_values, y_values, color=colors, label="Cones")
 
         # Highlight the selected point if any
         selected_x = [point[0] for point in self.selected_cones]
@@ -563,8 +614,8 @@ class MapEditor:
             messagebox.showinfo("Info", "Select cones to remove.")
 
     def gen_data(self):
-        datasetGenerator = DatasetGenerator(self.selected_file, self.label_every, self.ego_motion_compensate)
-        datasetGenerator.gen_data(self.cones)
+        sceneGenerator = SceneGenerator(self.selected_file, self.label_every, self.ego_motion_compensate)
+        sceneGenerator.gen_data(self.cones)
 
     def run(self):
         self.root.mainloop()
@@ -572,7 +623,7 @@ class MapEditor:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Map editor")
-    parser.add_argument("--label-every", type=int, default=10, help="Label every nth point cloud")
+    parser.add_argument("--label-every", type=int, default=20, help="Label every nth point cloud")
     parser.add_argument("--ego-motion-compensate", action="store_true", help="Ego-motion compensate the point cloud")
 
     return parser.parse_args()
@@ -586,3 +637,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
