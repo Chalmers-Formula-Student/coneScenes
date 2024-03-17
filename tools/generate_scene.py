@@ -353,9 +353,7 @@ class SceneGenerator:
                         elif c == ORANGE_C:
                             cone_type = 'Cone_Orange'
                         else:
-                            # panic and return
-                            messagebox.showinfo("Error", "Unknown cone color in map")
-                            return
+                            continue
                         f.write(f"{x} {y} 0.0 0.23 0.23 0.33 0.0 {cone_type}\n")
 
                 # Compute checksums
