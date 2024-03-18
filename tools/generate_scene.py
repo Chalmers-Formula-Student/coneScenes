@@ -297,6 +297,11 @@ class SceneGenerator:
         if not global_cones:
             messagebox.showinfo("Info", "No points to save.")
             return
+        
+        # make sure the user understands the coloring need
+        proceed = messagebox.askyesno("Proceed?", "Any cones with no color (purple) will be ignored. Do you want to proceed?")
+        if not proceed:
+            return
 
         # Open folder dialog
         folder_path = filedialog.askdirectory()
