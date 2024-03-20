@@ -6,7 +6,8 @@ import pkg_resources
 import datetime as dt
 from termcolor import colored
 
-from cli.checksum import get_checksum
+from cli.build import build_dataset
+from cli.add import add_scene
 
 # The JSON file containing file paths and checksums
 JSON_FILE = '../data.json'
@@ -76,51 +77,25 @@ def add(file):
     """Add a new data file to the dataset.
     The file should be a zip file containing the dataset."""
 
-    # Calculate the checksum
-    checksum = get_checksum(file)
+    # Check that file exists
+    if not os.path.exists(file):
+        click.echo(f"File {file} does not exist.")
+        return
+    
+    # Check that file is a zip file
+    if not file.endswith('.zip'):
+        click.echo(f"File {file} is not a zip file.")
+        return
+    
+    add_scene(file, JSON_FILE)
+    
 
+@conescenes.command()
+def build():
+    """Select scenes and build a new dataset."""
     metadata_path = pkg_resources.resource_filename(__name__, JSON_FILE)
-    metadata_path = os.path.abspath(metadata_path)
-    print(metadata_path)
 
-    with open(metadata_path, 'r') as json_file:
-        data_info = json.load(json_file)
-    
-    # Step 1: Check if the file is already in the dataset
-    for entry in data_info['data']:
-        if entry['file_path'] == os.path.basename(file):
-            click.echo(f"File {file} is already in the dataset.")
-            return
-    
-    # Step 2: Ask the user to input information about the scene
-    name = click.prompt("Enter the name you want to give to the scene", default=os.path.basename(file))
-    team = click.prompt("Enter the team name", default="")
-    description = click.prompt("Enter a description for the scene", default="")
-    lidar = click.confirm("What LiDAR was used?")
-    lidar_loc = click.prompt("Enter the location of the LiDAR in the car (e.g. nose)", default="")
-
-    # TODO: add lidar scan number counter
-    data_info['data'].append({
-        "name": name,
-        "team": team,
-        "description": description,
-        "lidar": lidar,
-        "lidar_location": lidar_loc,
-        "file_path": os.path.basename(file),
-        "checksum": checksum
-    })
-
-    major, minor = map(int, data_info['version'].split('.'))
-    minor += 1  # Increment the minor version
-
-    # Step 4: Update the JSON data
-    data_info['version'] = f'{major}.{minor}'
-    data_info['last_updated'] = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    print(data_info)
-    
-    with open(metadata_path, 'w') as json_file:
-        json.dump(data_info, json_file, indent=4)
+    build_dataset("", metadata_path)
 
 
 conescenes.add_command(doctor)
