@@ -10,6 +10,8 @@ setup(
         "click",
         "termcolor",
         "datetime",
+        "zipfile",
+        "tkinter",
     ],
     entry_points="""
         [console_scripts]
