@@ -12,6 +12,8 @@ setup(
         "datetime",
         "zipfile",
         "tkinter",
+        "numpy",
+        "json",
     ],
     entry_points="""
         [console_scripts]
