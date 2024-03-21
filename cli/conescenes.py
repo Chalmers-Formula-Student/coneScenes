@@ -6,7 +6,7 @@ import pkg_resources
 import datetime as dt
 from termcolor import colored
 
-from cli.build import build_dataset
+from cli.build import DatasetBuilder
 from cli.add import add_scene
 
 # The JSON file containing file paths and checksums
@@ -91,11 +91,12 @@ def add(file):
     
 
 @conescenes.command()
-def build():
+@click.option('--dir', default='.', help='Directory to save the dataset.')
+def build(dir):
     """Select scenes and build a new dataset."""
     metadata_path = pkg_resources.resource_filename(__name__, JSON_FILE)
 
-    build_dataset("", metadata_path)
+    DatasetBuilder(dir, metadata_path).build_dataset()
 
 
 conescenes.add_command(doctor)
