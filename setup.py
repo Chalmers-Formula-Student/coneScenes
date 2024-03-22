@@ -6,6 +6,8 @@ setup(
     packages=["cli"],
     package_data={'': ['data.json']},
     include_package_data=True,
+    long_description=open('README.md').read(),
+    long_description_content_type='text/markdown',
     install_requires=[
         "click",
         "termcolor",
