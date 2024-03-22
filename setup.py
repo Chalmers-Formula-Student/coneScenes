@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(
-    name="conScenes",
+    name="conescenes",
     version="0.1",
     packages=["cli"],
     package_data={'': ['data.json']},
