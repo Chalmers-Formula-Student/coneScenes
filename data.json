@@ -1,17 +1,49 @@
 {
     "name": "coneScenes Lidar Dataset",
-    "version": "0.1",
-    "last_updated": "2023-11-19 17:26:45",
+    "version": "0.6",
+    "last_updated": "2024-03-23 16:09:27",
     "data": [
         {
-            "name": "CFS_vargarda8",
+            "name": "cfs_vargarda8",
             "team": "Chalmers Formula Student",
-            "description": "Vargarda track number 8",
-            "lidar": "Ouster OS1-64 bh",
-            "lidar_location": "nose",
-            "submission_date": "2023-11-19 17:26:45",
-            "file_path": "vargarda8_23_07_27.zip",
-            "checksum": "be5fff0a49bfe6c9de3d75ecad236c5c"
+            "description": "Regular driving on test track during pre competition testing 2023",
+            "submission_date": "2024-03-23 16:00:30",
+            "label_every": 10,
+            "lidar": {
+                "manufacturer": "Ouster",
+                "model": "OS1",
+                "config": "bellow horizon",
+                "vres": 64,
+                "hres": 1024,
+                "fov": 360,
+                "frequency": 20,
+                "location": "nose"
+            },
+            "num_labelled_frames": 63,
+            "num_unlabelled_frames": 679,
+            "file_path": "cfs_vargarda8.zip",
+            "checksum": "4ba45191e0f2138c359da061679882a2"
+        },
+        {
+            "name": "cfs_vargarda12",
+            "team": "Chalmers Formula Student",
+            "description": "Post competition winter testing. Track reversed, meaning yellow cones on the left and blue cones on the right.",
+            "submission_date": "2024-03-23 16:09:27",
+            "label_every": 10,
+            "lidar": {
+                "manufacturer": "Ouster",
+                "model": "OS1",
+                "config": "bellow horizon",
+                "vres": 64,
+                "hres": 1024,
+                "fov": 360,
+                "frequency": 20,
+                "location": "mainhoop"
+            },
+            "num_labelled_frames": 122,
+            "num_unlabelled_frames": 1105,
+            "file_path": "cfs_vargarda12.zip",
+            "checksum": "78c9feee799d2af6903ffeec0191c06f"
         }
     ]
 }

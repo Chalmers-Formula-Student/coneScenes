@@ -53,6 +53,7 @@ def add_scene(file: str, JSON_FILE: str):
         "name": name,
         "team": team,
         "description": description,
+        "submission_date": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "label_every": label_every,
         "lidar": {
             "manufacturer": lidar_make,

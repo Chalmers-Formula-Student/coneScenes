@@ -133,6 +133,8 @@ class DatasetBuilder:
 
         os.system(f"rm -rf {os.path.join(export_dir, 'tmp')}")
 
+        print("Export complete.")
+
     
     def _copy_files(self, src_dir, points_dir, labels_dir, start_id):
         # Open metadata file
