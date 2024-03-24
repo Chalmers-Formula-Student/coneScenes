@@ -13,7 +13,7 @@ This repository provides the command-line interface (**CLI**) and tools for work
 
 ## Get Access to the Dataset
 
-A sample scene is provided [here](ADD LINK HERE).
+A sample scene is provided [here](https://drive.google.com/file/d/1WrOS04MkVUi33scFcmyAM-SgqM9cEH80/view?usp=sharing).
 
 To get full access to the dataset, your team must contribute to the dataset with your own data. To learn how to use our auto annotation and data generation tools, please refer to our website [here](https://conescenes.chalmersformulastudent.se/tools).
 
