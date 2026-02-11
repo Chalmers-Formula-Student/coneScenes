@@ -1,7 +1,15 @@
+> [!CAUTION]
+> ### 🛑 Project Status: Inactive / Maintenance Needed
+> This project is currently **not being actively developed** by the original creators. 
+> * **No data is being distributed privately.**
+> * **Do not contact the maintainers via private channels (Phone, LinkedIn, etc.).**
+> * Please read the [**Update**](https://github.com/Chalmers-Formula-Student/coneScenes/issues/25) before opening an issue.
+
+---
+
 # coneScenes Dataset
 
 [![Website](https://img.shields.io/badge/Website-red)](https://conescenes.chalmersformulastudent.se/) [![GitHub Discussions](https://img.shields.io/badge/discuss-on%20github-blue)](https://github.com/Chalmers-Formula-Student/coneScenes/discussions)
-
 
 **coneScenes** is a collaborative LiDAR pointcloud dataset with 3D bounding box annotations for cones, specifically designed to support the development of perception algorithms used by Formula Student driverless teams.
 
